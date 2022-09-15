@@ -14,11 +14,15 @@ enum {
 	NUM_MODES
 };
 
+static const char *modestr[] = { "GL_POINTS", "glDrawPixels", "textured quad",
+	"textured triangle"};
+
 int init(void);
 void display(void);
 void idle(void);
 void reshape(int x, int y);
 void keyb(unsigned char key, int x, int y);
+void change_mode(int m);
 
 int win_width, win_height;
 int max_xscroll, max_yscroll;
@@ -29,10 +33,14 @@ unsigned int img[IMG_W * IMG_H];
 float *varr, *carr;
 unsigned int vbo_pos, vbo_col;
 int varr_sz, carr_sz;
+unsigned int tex, quad, tri;
 
 int mode = MODE_POINTS;
 
 int have_vbo = 1;	/* TODO */
+
+unsigned int start_tm;
+unsigned int num_frames;
 
 
 int main(int argc, char **argv)
@@ -42,6 +50,8 @@ int main(int argc, char **argv)
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
 	glutCreateWindow("GL pixel drawing methods");
 
+	change_mode(mode);
+
 	glutDisplayFunc(display);
 	glutReshapeFunc(reshape);
 	glutKeyboardFunc(keyb);
@@ -50,6 +60,8 @@ int main(int argc, char **argv)
 	if(init() == -1) {
 		return 1;
 	}
+
+	start_tm = glutGet(GLUT_ELAPSED_TIME);
 	glutMainLoop();
 	return 0;
 }
@@ -59,7 +71,6 @@ int init(void)
 {
 	int i, j, xor, r, g, b;
 	unsigned int *ptr;
-	unsigned int tex;
 	float *vptr;
 
 	ptr = img;
@@ -82,7 +93,7 @@ int init(void)
 	glBindTexture(GL_TEXTURE_2D, tex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, win_width, win_height, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, win_width, win_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 
 	varr_sz = win_width * win_height * sizeof *varr * 2;
 	if(!(varr = malloc(varr_sz))) {
@@ -114,6 +125,25 @@ int init(void)
 		glBufferData(GL_ARRAY_BUFFER, carr_sz, 0, GL_STREAM_DRAW);
 	}
 
+	quad = glGenLists(1);
+	glNewList(quad, GL_COMPILE);
+	glBegin(GL_QUADS);
+	glTexCoord2f(0, 0); glVertex2f(0, 0);
+	glTexCoord2f(1, 0); glVertex2f(1, 0);
+	glTexCoord2f(1, 1); glVertex2f(1, 1);
+	glTexCoord2f(0, 1); glVertex2f(0, 1);
+	glEnd();
+	glEndList();
+
+	tri = glGenLists(1);
+	glNewList(tri, GL_COMPILE);
+	glBegin(GL_TRIANGLES);
+	glTexCoord2f(0, 0); glVertex2f(0, 0);
+	glTexCoord2f(2, 0); glVertex2f(2, 0);
+	glTexCoord2f(0, 2); glVertex2f(0, 2);
+	glEnd();
+	glEndList();
+
 	return 0;
 }
 
@@ -121,11 +151,15 @@ void display(void)
 {
 	int i, j;
 	unsigned int tm = glutGet(GLUT_ELAPSED_TIME);
+	unsigned int interv;
 	float t = tm / 256.0f;
 	int xoffs = (int)((sin(t) * 0.5f + 0.5f) * max_xscroll);
 	int yoffs = (int)((cos(t) * 0.5f + 0.5f) * max_yscroll);
 	unsigned int *start = img + yoffs * IMG_W + xoffs;
 	float *vptr = varr;
+
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
 
 	switch(mode) {
 	case MODE_POINTS:
@@ -171,16 +205,35 @@ void display(void)
 		break;
 
 	case MODE_TEXQUAD:
-		/* draw with textured quad */
-		break;
-
 	case MODE_TEXTRI:
-		/* draw with textured triangle */
+		/* draw with textured quad or triangle */
+		glBindTexture(GL_TEXTURE_2D, tex);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, win_width, win_height, GL_RGBA,
+				GL_UNSIGNED_BYTE, start);
+		glEnable(GL_TEXTURE_2D);
+		glScalef(win_width, win_height, 1);
+		glCallList(mode == MODE_TEXQUAD ? quad : tri);
+		glDisable(GL_TEXTURE_2D);
 		break;
 	}
 
 	glutSwapBuffers();
 	assert(glGetError() == GL_NO_ERROR);
+
+	tm = glutGet(GLUT_ELAPSED_TIME);
+	interv = tm - start_tm;
+	if(++num_frames == 1000 || interv > 5000) {
+		unsigned int fps = 100000 * num_frames / interv;
+		printf("%s: %.2f fps\n", modestr[mode], fps / 100.0f);
+		num_frames = 0;
+		start_tm = tm;
+
+		if(mode < NUM_MODES - 1) {
+			change_mode(mode + 1);
+		} else {
+			exit(0);
+		}
+	}
 }
 
 void idle(void)
@@ -211,10 +264,18 @@ void keyb(unsigned char key, int x, int y)
 		exit(0);
 
 	case ' ':
-		mode = (mode + 1) % NUM_MODES;
+		change_mode((mode + 1) % NUM_MODES);
 		break;
 
 	default:
 		break;
 	}
+}
+
+void change_mode(int m)
+{
+	char title[128];
+	mode = m;
+	sprintf(title, "GL pixel drawing test: %s\n", modestr[mode]);
+	glutSetWindowTitle(title);
 }
