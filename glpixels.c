@@ -2,10 +2,11 @@
 #include <stdlib.h>
 #include <math.h>
 #include <assert.h>
+#define GL_GLEXT_PROTOTYPES	1
 #include <GL/glut.h>
 
 enum {
-	MODE_VERTEX,
+	MODE_POINTS,
 	MODE_DRAWPIX,
 	MODE_TEXQUAD,
 	MODE_TEXTRI,
@@ -25,8 +26,14 @@ int max_xscroll, max_yscroll;
 #define IMG_W	1024
 #define IMG_H	1024
 unsigned int img[IMG_W * IMG_H];
+float *varr, *carr;
+unsigned int vbo_pos, vbo_col;
+int varr_sz, carr_sz;
 
-int mode = MODE_DRAWPIX;
+int mode = MODE_POINTS;
+
+int have_vbo = 1;	/* TODO */
+
 
 int main(int argc, char **argv)
 {
@@ -53,6 +60,7 @@ int init(void)
 	int i, j, xor, r, g, b;
 	unsigned int *ptr;
 	unsigned int tex;
+	float *vptr;
 
 	ptr = img;
 	for(i=0; i<IMG_H; i++) {
@@ -76,25 +84,89 @@ int init(void)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, win_width, win_height, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 
+	varr_sz = win_width * win_height * sizeof *varr * 2;
+	if(!(varr = malloc(varr_sz))) {
+		fprintf(stderr, "failed to allocate vertex array\n");
+		return -1;
+	}
+	carr_sz = win_width * win_height * sizeof *carr * 3;
+	if(!(carr = malloc(carr_sz))) {
+		fprintf(stderr, "failed to allocate color array\n");
+		return -1;
+	}
+
+	vptr = varr;
+	for(i=0; i<win_height; i++) {
+		for(j=0; j<win_width; j++) {
+			vptr[0] = j;
+			vptr[1] = i;
+			vptr += 2;
+		}
+	}
+
+	if(have_vbo) {
+		glGenBuffers(1, &vbo_pos);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo_pos);
+		glBufferData(GL_ARRAY_BUFFER, varr_sz, varr, GL_STATIC_DRAW);
+
+		glGenBuffers(1, &vbo_col);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo_col);
+		glBufferData(GL_ARRAY_BUFFER, carr_sz, 0, GL_STREAM_DRAW);
+	}
+
 	return 0;
 }
 
 void display(void)
 {
+	int i, j;
 	unsigned int tm = glutGet(GLUT_ELAPSED_TIME);
 	float t = tm / 256.0f;
 	int xoffs = (int)((sin(t) * 0.5f + 0.5f) * max_xscroll);
 	int yoffs = (int)((cos(t) * 0.5f + 0.5f) * max_yscroll);
-	unsigned int *start;
+	unsigned int *start = img + yoffs * IMG_W + xoffs;
+	float *vptr = varr;
 
 	switch(mode) {
-	case MODE_VERTEX:
+	case MODE_POINTS:
 		/* draw with points */
+		vptr = carr;
+		for(i=0; i<win_height; i++) {
+			for(j=0; j<win_width; j++) {
+				int r = start[j] & 0xff;
+				int g = (start[j] >> 8) & 0xff;
+				int b = (start[j] >> 16) & 0xff;
+				vptr[0] = r / 255.0f;
+				vptr[1] = g / 255.0f;
+				vptr[2] = b / 255.0f;
+				vptr += 3;
+			}
+			start += IMG_W;
+		}
+
+		if(have_vbo) {
+			glBindBuffer(GL_ARRAY_BUFFER, vbo_pos);
+			glVertexPointer(2, GL_FLOAT, 0, 0);
+			glBindBuffer(GL_ARRAY_BUFFER, vbo_col);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, carr_sz, carr);
+			glColorPointer(3, GL_FLOAT, 0, 0);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		} else {
+			glVertexPointer(2, GL_FLOAT, 0, varr);
+			glColorPointer(3, GL_FLOAT, 0, carr);
+		}
+
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glEnableClientState(GL_COLOR_ARRAY);
+
+		glDrawArrays(GL_POINTS, 0, win_width * win_height);
+
+		glDisableClientState(GL_VERTEX_ARRAY);
+		glDisableClientState(GL_COLOR_ARRAY);
 		break;
 
 	case MODE_DRAWPIX:
 		/* draw with glDrawPixels */
-		start = img + yoffs * IMG_W + xoffs;
 		glDrawPixels(win_width, win_height, GL_RGBA, GL_UNSIGNED_BYTE, start);
 		break;
 
@@ -119,6 +191,10 @@ void idle(void)
 void reshape(int x, int y)
 {
 	glViewport(0, 0, x, y);
+
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(0, x, 0, y, -1, 1);
 
 	win_width = x;
 	win_height = y;
