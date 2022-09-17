@@ -1,9 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <assert.h>
-#define GL_GLEXT_PROTOTYPES	1
 #include <GL/glut.h>
+
+#if defined(unix) || defined(__unix__)
+#include <GL/glx.h>
+
+#define BUILD_X11
+#define get_proc_addr(s)	(void (*)())glXGetProcAddress((unsigned char*)(s))
+#endif
 
 enum {
 	MODE_POINTS,
@@ -27,8 +34,8 @@ void change_mode(int m);
 int win_width, win_height;
 int max_xscroll, max_yscroll;
 
-#define IMG_W	1024
-#define IMG_H	1024
+#define IMG_W	1400
+#define IMG_H	1200
 unsigned int img[IMG_W * IMG_H];
 float *varr, *carr;
 unsigned int vbo_pos, vbo_col;
@@ -37,10 +44,24 @@ unsigned int tex, quad, tri;
 
 int mode = MODE_POINTS;
 
-int have_vbo = 1;	/* TODO */
+int have_vbo;
 
 unsigned int start_tm;
 unsigned int num_frames;
+
+void (*gl_gen_buffers)(GLsizei, GLuint*);
+void (*gl_bind_buffer)(GLenum, GLuint);
+void (*gl_buffer_data)(GLenum, GLsizeiptr, const void*, GLenum);
+void (*gl_buffer_sub_data)(GLenum, GLintptr, GLsizeiptr, const void *data);
+
+#ifdef BUILD_X11
+static Display *dpy;
+static Window win;
+
+static void (*glx_swap_interval_ext)(Display*, Window, int);
+static void (*glx_swap_interval_mesa)(int);
+static void (*glx_swap_interval_sgi)(int);
+#endif
 
 
 int main(int argc, char **argv)
@@ -72,6 +93,63 @@ int init(void)
 	int i, j, xor, r, g, b;
 	unsigned int *ptr;
 	float *vptr;
+	const char *extstr;
+
+	extstr = (char*)glGetString(GL_EXTENSIONS);
+
+	if(strstr(extstr, "ARB_vertex_buffer_object")) {
+		if(!(gl_gen_buffers = get_proc_addr("glGenBuffers"))) {
+			gl_gen_buffers = get_proc_addr("glGenBuffersARB");
+		}
+		if(!(gl_bind_buffer = get_proc_addr("glBindBuffer"))) {
+			gl_bind_buffer = get_proc_addr("glBindBufferARB");
+		}
+		if(!(gl_buffer_data = get_proc_addr("glBufferData"))) {
+			gl_buffer_data = get_proc_addr("glBufferDataARB");
+		}
+		if(!(gl_buffer_sub_data = get_proc_addr("glBufferSubData"))) {
+			gl_buffer_sub_data = get_proc_addr("glBufferSubDataARB");
+		}
+		if(gl_gen_buffers && gl_bind_buffer && gl_buffer_data && gl_buffer_sub_data) {
+			have_vbo = 1;
+		}
+	}
+	if(have_vbo) {
+		printf("Using vertex buffer objects for the GL_POINTS test\n");
+	} else {
+		printf("No VBO extension, using client-side vertex arrays for the GL_POINTS test\n");
+	}
+
+#ifdef BUILD_X11
+	{
+		int scr;
+		XWindowAttributes wattr;
+
+		dpy = glXGetCurrentDisplay();
+		win = glXGetCurrentDrawable();
+
+		XGetWindowAttributes(dpy, win, &wattr);
+		scr = XScreenNumberOfScreen(wattr.screen);
+
+		if(!(extstr = glXQueryExtensionsString(dpy, scr))) {
+			return -1;
+		}
+	}
+
+	if(strstr(extstr, "GLX_EXT_swap_control") && (glx_swap_interval_ext = get_proc_addr("glXSwapIntervalEXT"))) {
+		printf("using GLX_EXT_swap_control to disable vsync\n");
+		glx_swap_interval_ext(dpy, win, 0);
+	} else if(strstr(extstr, "GLX_MESA_swap_control") && (glx_swap_interval_mesa = get_proc_addr("glXSwapIntervalMESA"))) {
+		printf("using GLX_MESA_swap_control to disable vsync\n");
+		glx_swap_interval_mesa(0);
+	} else if(strstr(extstr, "GLX_SGI_swap_control") && (glx_swap_interval_sgi = get_proc_addr("glXSwapIntervalSGI"))) {
+		printf("using GLX_SGI_swap_control to disable vsync\n");
+		glx_swap_interval_sgi(0);
+	} else {
+		fprintf(stderr, "No vsync extension found, you might need to disable vsync externally\n");
+	}
+#endif
+
 
 	ptr = img;
 	for(i=0; i<IMG_H; i++) {
@@ -116,13 +194,13 @@ int init(void)
 	}
 
 	if(have_vbo) {
-		glGenBuffers(1, &vbo_pos);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_pos);
-		glBufferData(GL_ARRAY_BUFFER, varr_sz, varr, GL_STATIC_DRAW);
+		gl_gen_buffers(1, &vbo_pos);
+		gl_bind_buffer(GL_ARRAY_BUFFER, vbo_pos);
+		gl_buffer_data(GL_ARRAY_BUFFER, varr_sz, varr, GL_STATIC_DRAW);
 
-		glGenBuffers(1, &vbo_col);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_col);
-		glBufferData(GL_ARRAY_BUFFER, carr_sz, 0, GL_STREAM_DRAW);
+		gl_gen_buffers(1, &vbo_col);
+		gl_bind_buffer(GL_ARRAY_BUFFER, vbo_col);
+		gl_buffer_data(GL_ARRAY_BUFFER, carr_sz, 0, GL_STREAM_DRAW);
 	}
 
 	quad = glGenLists(1);
@@ -179,12 +257,12 @@ void display(void)
 		}
 
 		if(have_vbo) {
-			glBindBuffer(GL_ARRAY_BUFFER, vbo_pos);
+			gl_bind_buffer(GL_ARRAY_BUFFER, vbo_pos);
 			glVertexPointer(2, GL_FLOAT, 0, 0);
-			glBindBuffer(GL_ARRAY_BUFFER, vbo_col);
-			glBufferSubData(GL_ARRAY_BUFFER, 0, carr_sz, carr);
+			gl_bind_buffer(GL_ARRAY_BUFFER, vbo_col);
+			gl_buffer_sub_data(GL_ARRAY_BUFFER, 0, carr_sz, carr);
 			glColorPointer(3, GL_FLOAT, 0, 0);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
+			gl_bind_buffer(GL_ARRAY_BUFFER, 0);
 		} else {
 			glVertexPointer(2, GL_FLOAT, 0, varr);
 			glColorPointer(3, GL_FLOAT, 0, carr);
@@ -220,9 +298,10 @@ void display(void)
 	glutSwapBuffers();
 	assert(glGetError() == GL_NO_ERROR);
 
+	num_frames++;
 	tm = glutGet(GLUT_ELAPSED_TIME);
 	interv = tm - start_tm;
-	if(++num_frames == 1000 || interv > 5000) {
+	if(interv >= 4000) {
 		unsigned int fps = 100000 * num_frames / interv;
 		printf("%s: %.2f fps\n", modestr[mode], fps / 100.0f);
 		num_frames = 0;
