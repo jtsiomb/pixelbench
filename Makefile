@@ -1,7 +1,7 @@
 obj = glpixels.o
 bin = glpixels
 
-CFLAGS = -pedantic -Wall -g
+CFLAGS = -pedantic -Wall -g -O3
 LDFLAGS = -lX11 -lGL -lglut -lm
 
 $(bin): $(obj)

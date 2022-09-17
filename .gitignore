@@ -1,3 +1,5 @@
 *.o
 *.swp
 glpixels
+sdlpixels
+sdl2pixels
