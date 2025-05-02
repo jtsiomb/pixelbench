@@ -1,8 +1,8 @@
-obj = xpixels.o
-bin = xpixels
+obj = glpixels.o
+bin = glpixels
 
 CFLAGS = -O3
-LDFLAGS = -lX11 -lXext -lm
+LDFLAGS = -lX11 -lGL -lglut -lm
 
 $(bin): $(obj)
 	$(CC) -o $@ $(obj) $(LDFLAGS)

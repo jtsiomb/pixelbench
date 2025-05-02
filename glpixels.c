@@ -309,11 +309,7 @@ void display(void)
 		num_frames = 0;
 		start_tm = tm;
 
-		if(mode < NUM_MODES - 1) {
-			change_mode(mode + 1);
-		} else {
-			exit(0);
-		}
+		change_mode((mode + 1) % NUM_MODES);
 	}
 }
 

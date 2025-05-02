@@ -121,6 +121,5 @@ void display(void)
 		printf("SDL: %.2f fps\n", fps / 100.0f);
 		num_frames = 0;
 		start_tm = tm;
-		quit = 1;
 	}
 }
