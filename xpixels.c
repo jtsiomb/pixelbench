@@ -199,10 +199,12 @@ int init(void)
 	for(i=0; i<IMG_H; i++) {
 		for(j=0; j<IMG_W; j++) {
 			xor = i ^ j;
-			r = (xor >> 1) & 0xff;
-			g = xor & 0xff;
-			b = (xor << 1) & 0xff;
-			*ptr++ = b | (g << 8) | (r << 16);
+			r = (xor >> 1);
+			g = xor;
+			b = (xor << 1);
+			*ptr++ = ((r << fb_rshift) & fb_rmask) |
+				((g << fb_gshift) & fb_gmask) |
+				((b << fb_bshift) & fb_bmask);
 		}
 	}
 
@@ -252,7 +254,8 @@ static Window create_win(int width, int height, int bpp)
 	Window win;
 	XVisualInfo *vinf, vtmpl;
 	unsigned int vinf_mask;
-	XSetWindowAttributes xattr;
+	XSetWindowAttributes xattr = {0};
+	unsigned int xattr_mask;
 	XTextProperty txname;
 	Colormap cmap;
 	const char *name = "retrobench X11";
@@ -268,6 +271,7 @@ static Window create_win(int width, int height, int bpp)
 		return 0;
 	}
 	vis = vinf->visual;
+	printf("found X visual: 0x%x\n", vinf->visualid);
 
 	if(!(cmap = XCreateColormap(dpy, root, vis, bpp <= 8 ? AllocAll : AllocNone))) {
 		fprintf(stderr, "failed to allocate colormap\n");
@@ -277,8 +281,9 @@ static Window create_win(int width, int height, int bpp)
 	xattr.background_pixel = BlackPixel(dpy, scr);
 	xattr.colormap = cmap;
 	xattr.override_redirect = no_wm ? True : False;
+	xattr_mask = CWBackPixel | CWColormap | CWBackPixmap | CWBorderPixel | CWOverrideRedirect;
 	win = XCreateWindow(dpy, root, 0, 0, width, height, 0, vinf->depth,
-			InputOutput, vis, CWColormap | CWBackPixel | CWOverrideRedirect, &xattr);
+			InputOutput, vis, xattr_mask, &xattr);
 	if(!win) return 0;
 
 	XSelectInput(dpy, win, StructureNotifyMask | ExposureMask | KeyPressMask |

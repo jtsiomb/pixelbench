@@ -1,8 +1,10 @@
 obj = xpixels.o
 bin = xpixels
 
-CFLAGS = -O3
-LDFLAGS = -lX11 -lXext -lm
+include cfg.mk
+
+CFLAGS = -O3 $(CFLAGS_cfg) $(CFLAGS_user)
+LDFLAGS = $(LDFLAGS_cfg) $(LDFLAGS_user) -lX11 -lXext -lm
 
 $(bin): $(obj)
 	$(CC) -o $@ $(obj) $(LDFLAGS)

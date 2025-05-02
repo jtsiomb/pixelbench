@@ -7,9 +7,30 @@
 
 #if defined(unix) || defined(__unix__)
 #include <GL/glx.h>
+#include <dlfcn.h>
 
 #define BUILD_X11
+
+#ifdef GLX_VERSION_1_4
 #define get_proc_addr(s)	(void (*)())glXGetProcAddress((unsigned char*)(s))
+#else
+#define get_proc_addr(s)	(void (*)())dlsym(0, s)
+#endif
+
+#endif	/* unix */
+
+#ifdef GL_VERSION_1_1
+#define HAVE_VARR
+#else
+#define glGenTextures	glGenTexturesEXT
+#define glBindTexture	glBindTextureEXT
+#define glTexSubImage2D	glTexSubImage2DEXT
+#endif
+
+#ifdef __sgi
+#define PIXFMT	GL_ABGR_EXT
+#else
+#define PIXFMT	GL_RGBA
 #endif
 
 enum {
@@ -30,31 +51,41 @@ void idle(void);
 void reshape(int x, int y);
 void keyb(unsigned char key, int x, int y);
 void change_mode(int m);
+unsigned int nextpow2(unsigned int x);
 
-int win_width, win_height;
+int win_width, win_height, tex_width, tex_height;
+int dblbuf = 1;
 int max_xscroll, max_yscroll;
 
 #define IMG_W	1400
 #define IMG_H	1200
 unsigned int img[IMG_W * IMG_H];
-float *varr, *carr;
-unsigned int vbo_pos, vbo_col;
-int varr_sz, carr_sz;
-unsigned int tex, quad, tri;
+unsigned int tex, quadlist, trilist;
 
 int mode = MODE_POINTS;
-
-int have_vbo;
 
 unsigned int start_tm;
 unsigned int num_frames;
 
+
+#ifdef HAVE_VARR
+float *varr, *carr;
+unsigned int vbo_pos, vbo_col;
+int varr_sz, carr_sz;
+int have_vbo;
+
+#ifndef GL_ARRAY_BUFFER
+#define GL_ARRAY_BUFFER			0x8892
+#define GL_STATIC_DRAW			0x88e4
+#endif
+
 void (*gl_gen_buffers)(GLsizei, GLuint*);
 void (*gl_bind_buffer)(GLenum, GLuint);
-void (*gl_buffer_data)(GLenum, GLsizeiptr, const void*, GLenum);
-void (*gl_buffer_sub_data)(GLenum, GLintptr, GLsizeiptr, const void *data);
+void (*gl_buffer_data)(GLenum, long, const void*, GLenum);
+void (*gl_buffer_sub_data)(GLenum, long, long, const void *data);
+#endif	/* HAVE_VARR */
 
-#ifdef BUILD_X11
+#if defined(BUILD_X11) && defined(GLX_VERSION_1_3)
 static Display *dpy;
 static Window win;
 
@@ -71,6 +102,7 @@ int main(int argc, char **argv)
 
 	if(argv[1] && strcmp(argv[1], "-single") == 0) {
 		glutflags &= ~GLUT_DOUBLE;
+		dblbuf = 0;
 	}
 	glutInitWindowSize(800, 600);
 	glutInitDisplayMode(glutflags);
@@ -96,7 +128,9 @@ int main(int argc, char **argv)
 int init(void)
 {
 	int i, j, xor, r, g, b;
-	unsigned int *ptr;
+	float umax, vmax;
+	unsigned char *ptr;
+#ifdef HAVE_VARR
 	float *vptr;
 	const char *extstr;
 
@@ -124,8 +158,11 @@ int init(void)
 	} else {
 		printf("No VBO extension, using client-side vertex arrays for the GL_POINTS test\n");
 	}
+#else
+	printf("No vertex arrays, using immediate mode for the GL_POINTS test\n");
+#endif
 
-#ifdef BUILD_X11
+#if defined(BUILD_X11) && defined(GLX_VERSION_1_3)
 	{
 		int scr;
 		XWindowAttributes wattr;
@@ -153,28 +190,46 @@ int init(void)
 #endif
 
 
-	ptr = img;
+	ptr = (unsigned char*)img;
 	for(i=0; i<IMG_H; i++) {
 		for(j=0; j<IMG_W; j++) {
 			xor = i ^ j;
 			r = (xor >> 1) & 0xff;
 			g = xor & 0xff;
 			b = (xor << 1) & 0xff;
-			*ptr++ = r | (g << 8) | (b << 16);
+#ifdef __sgi
+			ptr[0] = 0xff;
+			ptr[1] = b;
+			ptr[2] = g;
+			ptr[3] = r;
+#else
+			ptr[0] = r;
+			ptr[1] = g;
+			ptr[2] = b;
+			ptr[3] = 0xff;
+#endif
+			ptr += 4;
 		}
 	}
 
+	assert(glGetError() == GL_NO_ERROR);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, IMG_W);
 
 	win_width = glutGet(GLUT_WINDOW_WIDTH);
 	win_height = glutGet(GLUT_WINDOW_HEIGHT);
 
+	tex_width = nextpow2(win_width);
+	tex_height = nextpow2(win_height);
+	umax = (float)win_width / (float)tex_width;
+	vmax = (float)win_height / (float)tex_height;
+
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, win_width, win_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex_width, tex_height, 0, PIXFMT, GL_UNSIGNED_BYTE, 0);
 
+#ifdef HAVE_VARR
 	varr_sz = win_width * win_height * sizeof *varr * 2;
 	if(!(varr = malloc(varr_sz))) {
 		fprintf(stderr, "failed to allocate vertex array\n");
@@ -204,23 +259,26 @@ int init(void)
 		gl_bind_buffer(GL_ARRAY_BUFFER, vbo_col);
 		gl_buffer_data(GL_ARRAY_BUFFER, carr_sz, 0, GL_STREAM_DRAW);
 	}
+#endif	/* HAVE_VARR */
 
-	quad = glGenLists(1);
-	glNewList(quad, GL_COMPILE);
+	quadlist = glGenLists(1);
+	glNewList(quadlist, GL_COMPILE);
 	glBegin(GL_QUADS);
+	glColor3f(1, 1, 1);
 	glTexCoord2f(0, 0); glVertex2f(0, 0);
-	glTexCoord2f(1, 0); glVertex2f(1, 0);
-	glTexCoord2f(1, 1); glVertex2f(1, 1);
-	glTexCoord2f(0, 1); glVertex2f(0, 1);
+	glTexCoord2f(umax, 0); glVertex2f(1, 0);
+	glTexCoord2f(umax, vmax); glVertex2f(1, 1);
+	glTexCoord2f(0, vmax); glVertex2f(0, 1);
 	glEnd();
 	glEndList();
 
-	tri = glGenLists(1);
-	glNewList(tri, GL_COMPILE);
+	trilist = glGenLists(1);
+	glNewList(trilist, GL_COMPILE);
 	glBegin(GL_TRIANGLES);
+	glColor3f(1, 1, 1);
 	glTexCoord2f(0, 0); glVertex2f(0, 0);
-	glTexCoord2f(2, 0); glVertex2f(2, 0);
-	glTexCoord2f(0, 2); glVertex2f(0, 2);
+	glTexCoord2f(2 * umax, 0); glVertex2f(2, 0);
+	glTexCoord2f(0, 2 * vmax); glVertex2f(0, 2);
 	glEnd();
 	glEndList();
 
@@ -236,7 +294,9 @@ void display(void)
 	int xoffs = (int)((sin(t) * 0.5f + 0.5f) * max_xscroll);
 	int yoffs = (int)((cos(t) * 0.5f + 0.5f) * max_yscroll);
 	unsigned int *start = img + yoffs * IMG_W + xoffs;
+#ifdef HAVE_VARR
 	float *vptr = varr;
+#endif
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -244,6 +304,7 @@ void display(void)
 	switch(mode) {
 	case MODE_POINTS:
 		/* draw with points */
+#ifdef HAVE_VARR
 		vptr = carr;
 		for(i=0; i<win_height; i++) {
 			for(j=0; j<win_width; j++) {
@@ -277,27 +338,45 @@ void display(void)
 
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_COLOR_ARRAY);
+#else
+		glBegin(GL_POINTS);
+		for(i=0; i<win_height; i++) {
+			for(j=0; j<win_width; j++) {
+				unsigned char r = start[j] & 0xff;
+				unsigned char g = (start[j] >> 8) & 0xff;
+				unsigned char b = (start[j] >> 16) & 0xff;
+				glColor3ub(r, g, b);
+				glVertex2i(j, i);
+			}
+			start += IMG_W;
+		}
+		glEnd();
+#endif
 		break;
 
 	case MODE_DRAWPIX:
 		/* draw with glDrawPixels */
-		glDrawPixels(win_width, win_height, GL_RGBA, GL_UNSIGNED_BYTE, start);
+		glDrawPixels(win_width, win_height, PIXFMT, GL_UNSIGNED_BYTE, start);
 		break;
 
 	case MODE_TEXQUAD:
 	case MODE_TEXTRI:
 		/* draw with textured quad or triangle */
 		glBindTexture(GL_TEXTURE_2D, tex);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, win_width, win_height, GL_RGBA,
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, win_width, win_height, PIXFMT,
 				GL_UNSIGNED_BYTE, start);
 		glEnable(GL_TEXTURE_2D);
 		glScalef(win_width, win_height, 1);
-		glCallList(mode == MODE_TEXQUAD ? quad : tri);
+		glCallList(mode == MODE_TEXQUAD ? quadlist : trilist);
 		glDisable(GL_TEXTURE_2D);
 		break;
 	}
 
-	glutSwapBuffers();
+	if(dblbuf) {
+		glutSwapBuffers();
+	} else {
+		glFlush();
+	}
 	assert(glGetError() == GL_NO_ERROR);
 
 	num_frames++;
@@ -355,4 +434,15 @@ void change_mode(int m)
 	mode = m;
 	sprintf(title, "GL pixel drawing test: %s\n", modestr[mode]);
 	glutSetWindowTitle(title);
+}
+
+unsigned int nextpow2(unsigned int x)
+{
+	x--;
+	x |= x >> 1;
+	x |= x >> 2;
+	x |= x >> 4;
+	x |= x >> 8;
+	x |= x >> 16;
+	return x + 1;
 }

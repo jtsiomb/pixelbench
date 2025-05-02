@@ -1,0 +1,37 @@
+#!/bin/sh
+
+cfgmk=cfg.mk
+sys=`uname -s`
+
+rm -f $cfgmk
+touch $cfgmk
+
+echo "Generating $cfgmk ..."
+
+if [ -n "$CFLAGS" ]; then
+	echo "CFLAGS_user = $CFLAGS" >>$cfgmk
+fi
+if [ -n "$LDFLAGS" ]; then
+	echo "LDFLAGS_user = $LDFLAGS" >>$cfgmk
+fi
+
+if [ $sys = IRIX -o $sys = IRIX64 ]; then
+	if [ -d /usr/nekoware ]; then
+		echo 'Found nekoware'
+		incdir='-I/usr/nekoware/include'
+		libdir='-L/usr/nekoware/lib'
+	fi
+	if [ -d /usr/tgcware ]; then
+		echo 'Found tgcware'
+		incdir="$incdir -I/usr/tgcware/include"
+		libdir="$libdir -L/usr/tgcware/lib"
+	fi
+
+	if [ $sys = IRIX ]; then
+		echo "CFLAGS_cfg = -n32 -mips3 $incdir" >>$cfgmk
+		echo "LDFLAGS_cfg = -n32 -mips3 $libdir" >>$cfgmk
+	elif [ $sys = IRIX64 ]; then
+		echo "CFLAGS_cfg = -n32 -mips4 $incdir" >>$cfgmk
+		echo "LDFLAGS_cfg = -n32 -mips4 $libdir" >>$cfgmk
+	fi
+fi
