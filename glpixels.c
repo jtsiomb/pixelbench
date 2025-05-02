@@ -60,15 +60,20 @@ static Window win;
 
 static void (*glx_swap_interval_ext)(Display*, Window, int);
 static void (*glx_swap_interval_mesa)(int);
-static void (*glx_swap_interval_sgi)(int);
 #endif
 
 
 int main(int argc, char **argv)
 {
+	unsigned int glutflags = GLUT_RGB | GLUT_DOUBLE;
+
 	glutInit(&argc, argv);
+
+	if(argv[1] && strcmp(argv[1], "-single") == 0) {
+		glutflags &= ~GLUT_DOUBLE;
+	}
 	glutInitWindowSize(800, 600);
-	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
+	glutInitDisplayMode(glutflags);
 	glutCreateWindow("GL pixel drawing methods");
 
 	change_mode(mode);
@@ -142,9 +147,6 @@ int init(void)
 	} else if(strstr(extstr, "GLX_MESA_swap_control") && (glx_swap_interval_mesa = get_proc_addr("glXSwapIntervalMESA"))) {
 		printf("using GLX_MESA_swap_control to disable vsync\n");
 		glx_swap_interval_mesa(0);
-	} else if(strstr(extstr, "GLX_SGI_swap_control") && (glx_swap_interval_sgi = get_proc_addr("glXSwapIntervalSGI"))) {
-		printf("using GLX_SGI_swap_control to disable vsync\n");
-		glx_swap_interval_sgi(0);
 	} else {
 		fprintf(stderr, "No vsync extension found, you might need to disable vsync externally\n");
 	}
