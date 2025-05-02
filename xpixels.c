@@ -14,14 +14,26 @@
 
 enum { QUIT = 1, REDRAW = 2 };
 
+enum {
+	MODE_PUTIMAGE,
+	MODE_XSHM,
+
+	NUM_MODES
+};
+
+static const char *modestr[] = { "XPutImage", "XShmPutImage" };
+
 int init(void);
 void display(void);
 
 static Window create_win(int width, int height, int bpp);
 static void handle_event(XEvent *ev);
+void change_mode(int m);
 static void sig(int s);
 int mask_to_shift(unsigned int mask);
 
+
+int mode = MODE_PUTIMAGE;
 
 Display *dpy;
 Window win, root;
@@ -51,8 +63,6 @@ unsigned int img[IMG_W * IMG_H];
 
 unsigned int start_tm;
 unsigned int num_frames;
-
-int quit;
 
 
 int main(int argc, char **argv)
@@ -122,6 +132,7 @@ int main(int argc, char **argv)
 	fb_gshift = mask_to_shift(fb_gmask);
 	fb_bshift = mask_to_shift(fb_bmask);
 
+	change_mode(mode);
 
 	if(init() == -1) {
 		return 1;
@@ -129,7 +140,7 @@ int main(int argc, char **argv)
 
 	gettimeofday(&tv0, 0);
 
-	while(!(pending & quit)) {
+	while(!(pending & QUIT)) {
 		if(mapped) {/* && !wait_putimg) { */
 			while(XPending(dpy)) {
 				XNextEvent(dpy, &ev);
@@ -144,7 +155,11 @@ int main(int argc, char **argv)
 
 				display();
 
-				XShmPutImage(dpy, win, gc, ximg, 0, 0, 0, 0, ximg->width, ximg->height, False);
+				if(mode == MODE_XSHM) {
+					XShmPutImage(dpy, win, gc, ximg, 0, 0, 0, 0, ximg->width, ximg->height, False);
+				} else {
+					XPutImage(dpy, win, gc, ximg, 0, 0, 0, 0, ximg->width, ximg->height);
+				}
 				XSync(dpy, False);
 				/*wait_putimg = 1;*/
 			}
@@ -222,10 +237,11 @@ void display(void)
 	interv = time_msec - start_tm;
 	if(interv >= 4000) {
 		unsigned int fps = 100000 * num_frames / interv;
-		printf("XSHM: %.2f fps\n", fps / 100.0f);
+		printf("%s: %.2f fps\n", modestr[mode], fps / 100.0f);
 		num_frames = 0;
 		start_tm = time_msec;
-		quit = 1;
+
+		change_mode((mode + 1) % NUM_MODES);
 	}
 }
 
@@ -311,6 +327,10 @@ static void handle_event(XEvent *ev)
 				pending |= QUIT;
 				break;
 			}
+			if(sym == XK_space) {
+				change_mode((mode + 1) % NUM_MODES);
+				break;
+			}
 		}
 		break;
 
@@ -330,6 +350,19 @@ static void handle_event(XEvent *ev)
 	}
 }
 
+
+void change_mode(int m)
+{
+	XTextProperty txname;
+	char title[128], *ptr = title;
+	mode = m;
+	sprintf(title, "X11 pixel drawing test: %s\n", modestr[mode]);
+
+	XStringListToTextProperty(&ptr, 1, &txname);
+	XSetWMName(dpy, win, &txname);
+	XSetWMIconName(dpy, win, &txname);
+	XFree(txname.value);
+}
 
 static void sig(int s)
 {
