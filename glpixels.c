@@ -27,11 +27,11 @@
 #define glTexSubImage2D	glTexSubImage2DEXT
 #endif
 
-#ifdef __sgi
+/*#ifdef __sgi
 #define PIXFMT	GL_ABGR_EXT
-#else
+#else*/
 #define PIXFMT	GL_RGBA
-#endif
+/*#endif*/
 
 enum {
 	MODE_POINTS,

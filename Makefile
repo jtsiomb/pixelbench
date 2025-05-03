@@ -7,23 +7,23 @@ LDFLAGS = $(LDFLAGS_cfg) $(LDFLAGS_user)
 all: glpixels xpixels sdlpixels sdl2pixels
 
 glpixels: glpixels.o
-	$(CC) -o $@ $< $(LDFLAGS) -lglut -lGLU -lGL -lX11 -lXext -lXmu -lm
+	$(CC) -o $@ glpixels.o $(LDFLAGS) -lglut -lGLU -lGL -lX11 -lXext -lXmu -lm
 
 xpixels: xpixels.o
-	$(CC) -o $@ $< $(LDFLAGS) -lX11 -lXext -lm
+	$(CC) -o $@ xpixels.o $(LDFLAGS) -lX11 -lXext -lm
 
 sdlpixels: sdlpixels.o
-	$(CC) -o $@ $< $(LDFLAGS) `sdl-config --libs` -lm
+	$(CC) -o $@ sdlpixels.o $(LDFLAGS) `sdl-config --libs` -lm
 
 sdl2pixels: sdl2pixels.o
-	$(CC) -o $@ $< $(LDFLAGS) `sdl2-config --libs` -lm
+	$(CC) -o $@ sdl2pixels.o $(LDFLAGS) `sdl2-config --libs` -lm
 
 
 sdlpixels.o: sdlpixels.c
-	$(CC) -o $@ -c $< `sdl-config --cflags` $(CFLAGS)
+	$(CC) -o $@ -c sdlpixels.c `sdl-config --cflags` $(CFLAGS)
 
 sdl2pixels.o: sdl2pixels.c
-	$(CC) -o $@ -c $< `sdl2-config --cflags` $(CFLAGS)
+	$(CC) -o $@ -c sdl2pixels.c `sdl2-config --cflags` $(CFLAGS)
 
 .PHONY: clean
 clean:
