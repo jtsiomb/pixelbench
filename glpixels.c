@@ -47,6 +47,7 @@ static const char *modestr[] = { "GL_POINTS", "glDrawPixels", "textured quad",
 
 int init(void);
 void display(void);
+void update_tex(unsigned int *pixels);
 void idle(void);
 void reshape(int x, int y);
 void keyb(unsigned char key, int x, int y);
@@ -198,17 +199,17 @@ int init(void)
 			r = (xor >> 1) & 0xff;
 			g = xor & 0xff;
 			b = (xor << 1) & 0xff;
-#ifdef __sgi
+/*#ifdef __sgi
 			ptr[0] = 0xff;
 			ptr[1] = b;
 			ptr[2] = g;
 			ptr[3] = r;
-#else
+#else*/
 			ptr[0] = r;
 			ptr[1] = g;
 			ptr[2] = b;
 			ptr[3] = 0xff;
-#endif
+/*#endif*/
 			ptr += 4;
 		}
 	}
@@ -364,8 +365,7 @@ void display(void)
 	case MODE_TEXTRI:
 		/* draw with textured quad or triangle */
 		glBindTexture(GL_TEXTURE_2D, tex);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, win_width, win_height, PIXFMT,
-				GL_UNSIGNED_BYTE, start);
+		update_tex(start);
 		glEnable(GL_TEXTURE_2D);
 		glScalef(win_width, win_height, 1);
 		glCallList(mode == MODE_TEXQUAD ? quadlist : trilist);
@@ -391,6 +391,54 @@ void display(void)
 
 		change_mode((mode + 1) % NUM_MODES);
 	}
+}
+
+#define UPD_FULL		0
+#define UPD_LINES		1
+#define UPD_TILES		2
+#define UPD_TILE_LINE	3
+
+#define UPD		UPD_FULL
+
+void update_tex(unsigned int *pixels)
+{
+#if UPD == UPD_FULL
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, win_width, win_height, PIXFMT,
+			GL_UNSIGNED_BYTE, pixels);
+
+#elif UPD == UPD_LINES
+	int i;
+
+	for(i=0; i<win_height; i++) {
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, i, win_width, 1, PIXFMT,
+				GL_UNSIGNED_BYTE, pixels);
+		pixels += IMG_W;
+	}
+#elif UPD == UPD_TILES
+	int i, j, w, h;
+	unsigned int *pptr;
+
+	for(i=0; i<win_height; i += 128) {
+		pptr = pixels;
+		h = i + 128 > win_height ? win_height - i : 128;
+		for(j=0; j<win_width; j += 128) {
+			w = j + 128 > win_width ? win_width - j : 128;
+			glTexSubImage2D(GL_TEXTURE_2D, 0, j, i, w, h, PIXFMT,
+					GL_UNSIGNED_BYTE, pptr);
+			pptr += 128;
+		}
+		pixels += IMG_W * 128;
+	}
+#elif UPD == UPD_TILE_LINE
+	int i, h;
+
+	for(i=0; i<win_height; i += 128) {
+		h = i + 128 > win_height ? win_height - i : 128;
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, i, win_width, h, PIXFMT,
+				GL_UNSIGNED_BYTE, pixels);
+		pixels += IMG_W * 128;
+	}
+#endif
 }
 
 void idle(void)
