@@ -1,31 +1,30 @@
-.PHONY: all clean
-.PHONY: build-gl build-x11 build-sdl build-sdl2
-.PHONY: clean-gl clean-x11 clean-sdl clean-sdl2
+include cfg.mk
 
-all: build-gl build-x11 build-sdl build-sdl2
-clean: clean-gl clean-x11 clean-sdl clean-sdl2
+CFLAGS = -O3 $(CFLAGS_cfg) $(CFLAGS_user)
+LDFLAGS = $(LDFLAGS_cfg) $(LDFLAGS_user)
 
-build-gl:
-	$(MAKE) -f Makefile.gl
+.PHONY: all
+all: glpixels xpixels sdlpixels sdl2pixels
 
-build-x11:
-	$(MAKE) -f Makefile.x11
+glpixels: glpixels.o
+	$(CC) -o $@ $< $(LDFLAGS) -lglut -lGLU -lGL -lX11 -lXext -lXmu -lm
 
-build-sdl:
-	$(MAKE) -f Makefile.sdl
+xpixels: xpixels.o
+	$(CC) -o $@ $< $(LDFLAGS) -lX11 -lXext -lm
 
-build-sdl2:
-	$(MAKE) -f Makefile.sdl2
+sdlpixels: sdlpixels.o
+	$(CC) -o $@ $< $(LDFLAGS) `sdl-config --libs` -lm
+
+sdl2pixels: sdl2pixels.o
+	$(CC) -o $@ $< $(LDFLAGS) `sdl2-config --libs` -lm
 
 
-clean-gl:
-	$(MAKE) -f Makefile.gl clean
+sdlpixels.o: sdlpixels.c
+	$(CC) -o $@ -c $< `sdl-config --cflags` $(CFLAGS)
 
-clean-x11:
-	$(MAKE) -f Makefile.x11 clean
+sdl2pixels.o: sdl2pixels.c
+	$(CC) -o $@ -c $< `sdl2-config --cflags` $(CFLAGS)
 
-clean-sdl:
-	$(MAKE) -f Makefile.sdl clean
-
-clean-sdl2:
-	$(MAKE) -f Makefile.sdl2 clean
+.PHONY: clean
+clean:
+	rm -f glpixels xpixels sdlpixels sdl2pixels *.o
