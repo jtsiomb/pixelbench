@@ -76,6 +76,7 @@ int have_vbo;
 
 #ifndef GL_ARRAY_BUFFER
 #define GL_ARRAY_BUFFER			0x8892
+#define GL_STREAM_DRAW			0x88e0
 #define GL_STATIC_DRAW			0x88e4
 #endif
 
